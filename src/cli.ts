@@ -12,14 +12,16 @@ import { join } from "node:path";
 import { parseClaudeFile } from "./parsers/claude.js";
 import { parseCodexFile } from "./parsers/codex.js";
 import { discoverLogs, groupBySession } from "./parsers/index.js";
+import { readFileSync } from "node:fs";
 import { buildReceipt } from "./receipt/receipt.js";
+import { explainReceipt, verifyExplanation } from "./explain/index.js";
 import { forecastResume } from "./receipt/forecast.js";
 import { findModelSwitches } from "./receipt/check.js";
 import { renderReceiptText, renderForecastText, writeReceiptFiles } from "./receipt/render.js";
 import { runWithCap } from "./cap/cap.js";
 import type { LogEntry, ParseResult } from "./types.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0-dev";
 
 function usage(): string {
   return `agent-receipt ${VERSION} — a cost receipt for AI coding agents (local-first)
@@ -29,6 +31,7 @@ Usage:
   agent-receipt monthly [--month YYYY-MM] [--agent claude|codex|all] [--log-dir DIR]
   agent-receipt session <id> [--log-dir DIR]
   agent-receipt receipt [--file PATH] [--log-dir DIR] [--out DIR]
+  agent-receipt explain --file receipt.json   explain a receipt (rule-based; numbers only from the receipt)
   agent-receipt check [--file PATH] [--log-dir DIR]        model-switch report
   agent-receipt resume --forecast --file PATH [--ttl-minutes N]
   agent-receipt run --cap <usd> [--quota-pct N --quota-tokens N] [--log-dir DIR] [--out DIR] -- <command...>
@@ -173,6 +176,34 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     return printReceipt(latest, r.skippedLines, flags, "latest session");
+  }
+
+  if (cmd === "explain") {
+    // 解释层只读收据 JSON：不读日志、不算钱，只解释收据里已有的数字。
+    if (!flags.file) {
+      console.error("Usage: agent-receipt explain --file receipt.json");
+      return 2;
+    }
+    let receipt;
+    try {
+      receipt = JSON.parse(readFileSync(flags.file, "utf8"));
+    } catch {
+      console.error(`Cannot read receipt JSON: ${flags.file}`);
+      return 2;
+    }
+    if (!receipt || typeof receipt !== "object" || !receipt.usage) {
+      console.error(`Not a receipt JSON file: ${flags.file}`);
+      return 2;
+    }
+    const lines = explainReceipt(receipt);
+    const violations = verifyExplanation(lines, receipt);
+    lines.forEach((w, i) => console.log(`  ${i + 1}. ${w}`));
+    if (violations.length > 0) {
+      console.error("\nWarning: some explanation numbers could not be traced back to the receipt:");
+      for (const v of violations) console.error(`  - ${v.kind} ${v.value} in: ${v.line}`);
+      return 1;
+    }
+    return 0;
   }
 
   if (cmd === "check") {

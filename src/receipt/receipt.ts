@@ -1,4 +1,6 @@
 import { costOf, PRICE_TABLE_VERSION } from "../pricing/prices.js";
+import { explainReceipt } from "../explain/rules.js";
+export { explainReceipt as explainWhy } from "../explain/rules.js";
 import {
   addUsage,
   emptyUsage,
@@ -45,10 +47,6 @@ export interface Receipt {
 const ESTIMATE_NOTE =
   "Estimate at published list prices, not your invoice. " +
   "Subscription quota is shown in tokens / 5h-window share, never as dollars.";
-
-function fmtUsd(n: number): string {
-  return `$${n.toFixed(4)}`;
-}
 
 export function buildReceipt(
   entries: LogEntry[],
@@ -207,69 +205,6 @@ export function buildReceipt(
     priceTableVersion: PRICE_TABLE_VERSION,
     estimateNote: ESTIMATE_NOTE,
   };
-  receipt.whyExpensive = explainWhy(receipt);
+  receipt.whyExpensive = explainReceipt(receipt);
   return receipt;
-}
-
-/** Plain-language reasons, at most 3, ordered by cost share. */
-export function explainWhy(r: Receipt): string[] {
-  const lines: string[] = [];
-  const total = r.costUsd;
-  const pct = (part: number | null): number | null =>
-    total !== null && total > 0 && part !== null ? (part / total) * 100 : null;
-
-  const rewritePct = pct(r.cacheRewriteCostUsd);
-  if (rewritePct !== null && rewritePct >= 20 && r.cacheRewriteCostUsd !== null) {
-    lines.push(
-      `${fmtUsd(r.cacheRewriteCostUsd)} (${rewritePct.toFixed(0)}% of this receipt) went to cache rewrites ` +
-        `— ${r.cacheRewriteCount} rewrite(s) of ${r.cacheRewriteTokens.toLocaleString()} tokens. ` +
-        `Resuming a large session after the cache TTL expires re-writes the whole context. ` +
-        `Compact the session before pausing, or resume sooner.`,
-    );
-  } else if (r.resumeCount > 0 && r.resumeCostUsd !== null && r.resumeCostUsd > 0) {
-    lines.push(
-      `This session was resumed ${r.resumeCount} time(s) after a long gap; ` +
-        `resume cache rewrites cost ${fmtUsd(r.resumeCostUsd)}. ` +
-        `That cost is charged before any new work happens.`,
-    );
-  }
-
-  const subPct = pct(r.subagentCostUsd);
-  if (subPct !== null && subPct >= 20 && r.subagentCostUsd !== null) {
-    lines.push(
-      `Subagents / sidechain work cost ${fmtUsd(r.subagentCostUsd)} (${subPct.toFixed(0)}%). ` +
-        `Check whether a subagent repeated work or ran in a loop.`,
-    );
-  }
-
-  for (const sw of r.modelSwitches) {
-    const segPct = pct(sw.segmentCostUsd);
-    if (segPct !== null && segPct >= 15 && sw.segmentCostUsd !== null) {
-      lines.push(
-        `Model switch ${sw.fromModel ?? "?"} → ${sw.toModel ?? "?"}: ` +
-          `the segment after the switch cost ${fmtUsd(sw.segmentCostUsd)} (${segPct.toFixed(0)}%). ` +
-          `Confirm before switching to a more expensive model.`,
-      );
-      break;
-    }
-  }
-
-  if (lines.length === 0 && total !== null && total > 0) {
-    const cacheReadShare = r.usage.cacheRead / Math.max(1, totalTokens(r.usage));
-    if (cacheReadShare >= 0.5) {
-      lines.push(
-        `Cache is working well here: ${(cacheReadShare * 100).toFixed(0)}% of tokens were cache reads, ` +
-          `the cheapest kind. The main cost is fresh input and output.`,
-      );
-    } else {
-      lines.push(
-        `No single cause dominates this receipt. The largest share is fresh input and output tokens — ` +
-          `shorter prompts and smaller context windows are the cheapest lever.`,
-      );
-    }
-  }
-  if (lines.length === 0) {
-    lines.push("No cost drivers identified — token counts are low or prices are unknown for these models.");
-  }
-  return lines.slice(0, 3);
 }

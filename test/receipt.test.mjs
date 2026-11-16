@@ -18,6 +18,7 @@ const { parseCodexFile } = await import("../dist/parsers/codex.js");
 const { buildReceipt } = await import("../dist/receipt/receipt.js");
 const { forecastResume } = await import("../dist/receipt/forecast.js");
 const { findModelSwitches } = await import("../dist/receipt/check.js");
+const { explainReceipt, verifyExplanation, explainWithLlm } = await import("../dist/explain/index.js");
 
 const approx = (a, b, eps = 1e-9) =>
   assert.ok(a !== null && Math.abs(a - b) < eps, `expected ${b}, got ${a}`);
@@ -221,4 +222,67 @@ test("CLI with no logs found reports that instead of inventing data", async () =
     dir,
   ]);
   assert.match(stdout, /No log entries found/);
+});
+
+// --- 8. 混合架构：确定性层可复现，解释层只读收据 ---
+test("deterministic layer: same fixture twice gives byte-identical receipts", () => {
+  const r = parseClaudeFile(join(fixtures, "claude-session.jsonl"));
+  const a = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  const b = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  assert.equal(JSON.stringify(a), JSON.stringify(b));
+});
+
+test("explain layer: rule-based lines only use numbers from the receipt", () => {
+  const r = parseClaudeFile(join(fixtures, "claude-session.jsonl"));
+  const receipt = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  const lines = explainReceipt(receipt);
+  assert.ok(lines.length >= 1 && lines.length <= 3);
+  assert.deepEqual(verifyExplanation(lines, receipt), []);
+});
+
+test("explain layer: fabricated numbers are flagged, never passed", () => {
+  const r = parseClaudeFile(join(fixtures, "claude-session.jsonl"));
+  const receipt = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  const bad = [
+    "Cache rewrites cost $9.9999 (87% of this receipt).", // 数字收据里没有
+    "Subagents burned 12,345 tokens for nothing.", // token 数收据里没有
+  ];
+  const violations = verifyExplanation(bad, receipt);
+  assert.ok(violations.some((v) => v.kind === "amount" && v.value === "$9.9999"));
+  assert.ok(violations.some((v) => v.kind === "percent" && v.value === "87%"));
+  assert.ok(violations.some((v) => v.kind === "tokens" && v.value === "12,345 tokens"));
+});
+
+test("explain layer: LLM adapter drops lines with numbers not in the receipt", async () => {
+  const r = parseClaudeFile(join(fixtures, "claude-session.jsonl"));
+  const receipt = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  // 假 adapter：第一行是收据里真实的解释，第二行编了一个假数字。
+  const fakeAdapter = async () =>
+    `${receipt.whyExpensive[0]}\nCache rewrites cost $9.9999, a huge waste.`;
+  const { lines, dropped } = await explainWithLlm(receipt, fakeAdapter);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0], receipt.whyExpensive[0]);
+  assert.equal(dropped.length, 1);
+  assert.match(dropped[0], /\$9\.9999/);
+});
+
+test("CLI explain reads a receipt JSON and prints only receipt-backed lines", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-receipt-explain-"));
+  const { stdout: receiptOut } = await execFileAsync(process.execPath, [
+    cli,
+    "receipt",
+    "--file",
+    join(fixtures, "claude-session.jsonl"),
+    "--out",
+    dir,
+  ]);
+  assert.match(receiptOut, /receipt\.json/);
+  const { stdout } = await execFileAsync(process.execPath, [
+    cli,
+    "explain",
+    "--file",
+    join(dir, "receipt.json"),
+  ]);
+  assert.match(stdout, /cache rewrite/i);
+  assert.match(stdout, /\$0\.1875/);
 });

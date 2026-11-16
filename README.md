@@ -2,6 +2,16 @@
 
 A cost receipt for AI coding agents. Local-first, no cloud, no uploads.
 
+## Sponsors
+
+> 欢迎赞助本项目。赞助是自愿的，不解锁任何功能——核心功能永远
+> 开源免费（MIT），现在没有任何付费墙。赞助只用于支持维护。
+>
+> 联系与赞助请走 GitHub：[gonewiththesakura-creator/agent-receipt](https://github.com/gonewiththesakura-creator/agent-receipt)
+> 的 Issues / Discussions。
+>
+> （目前暂无赞助商。变现方向见 [docs/monetization.md](docs/monetization.md)。）
+
 ## The problem
 
 Your AI coding bill is rarely dominated by code written. It is dominated
@@ -89,6 +99,33 @@ The numbers above are from the synthetic fixture in
 `test/fixtures/claude-session.jsonl` — small made-up numbers, not a real
 bill. See `docs/receipt-example.md` for the same receipt in Markdown.
 
+## As a Claude Code skill
+
+`agent-receipt` ships as a Claude Code skill (see `skills/agent-receipt/`,
+built after the [Agent Skills spec](https://agentskills.io/specification)
+and Anthropic's [anthropics/skills](https://github.com/anthropics/skills)
+repo): ask Claude Code about session cost and it loads the skill.
+
+Install as a plugin marketplace (in Claude Code):
+
+```
+/plugin marketplace add gonewiththesakura-creator/agent-receipt
+/plugin install agent-receipt@agent-receipt-marketplace
+```
+
+Or copy the skill by hand:
+
+```bash
+cp -r skills/agent-receipt ~/.claude/skills/agent-receipt
+```
+
+Then just ask, for example: “这次会话花了多少钱？” / “为什么这么贵？”
+/ “resume 一下要多少钱？” / “帮我把这次任务控在 5 美元内。”
+The skill routes each question to the CLI (`receipt`, `explain`,
+`resume --forecast`, `check`, `run --cap`) — every number it reports
+comes from the CLI's deterministic output, never from the model's own
+arithmetic. Details: `skills/agent-receipt/SKILL.md`.
+
 ## How it works
 
 - **Sources.** Claude Code: `~/.claude/projects/<project>/<session>.jsonl`
@@ -115,6 +152,33 @@ bill. See `docs/receipt-example.md` for the same receipt in Markdown.
   incremental cost since the snapshot reaches the cap, it kills the
   process group and writes `cap-evidence.json` / `cap-evidence.md`
   explaining why it stopped.
+
+## Architecture: deterministic calculation + LLM explanation
+
+There are two layers, and they never mix (the split follows
+alibaba/open-code-review's "deterministic engineering × agent" pattern:
+deterministic code guarantees the result, the model only decides
+the wording):
+
+- **Deterministic layer (`src/receipt/`, `src/parsers/`, `src/pricing/`).**
+  Every amount, token count, cache rewrite, resume cost and model-switch
+  segment cost is computed here, from local logs and a versioned price
+  table. It is reproducible: the same log file run twice produces a
+  byte-identical receipt (covered by a test). It never calls a model.
+- **Explanation layer (`src/explain/`).** It only reads a finished
+  receipt and writes plain-language lines about *why* it was expensive.
+  It never recomputes a number: every dollar amount, percentage and
+  token count in its output must already exist as a field in the
+  receipt, enforced by `verifyExplanation()`. The rule-based
+  explainer (`explainReceipt()`) needs no model at all.
+- **LLM adapter (`src/explain/llm.ts`, optional).** If you want a model
+  to write the explanation, it receives only the receipt JSON — never
+  log text or prompts — and every line it returns is verified the same
+  way; lines with numbers that are not in the receipt are dropped, not
+  fixed up. See `docs/explain-llm-adapter.md`.
+
+**The red line: the LLM explains, it never calculates.** Numbers come
+from the deterministic layer; the model only turns them into sentences.
 
 ## Privacy
 
@@ -167,12 +231,25 @@ Node >= 20. No runtime dependencies; TypeScript is a dev dependency only.
 
 ## Roadmap
 
-- **v0.1** (this release): Claude Code + Codex receipts, API hard cap,
+- **v0.1**: Claude Code + Codex receipts, API hard cap,
   model-switch report + logging hook, resume forecast.
-- **v0.2**: Cursor / Gemini CLI parsers, idle auto-compact suggestions,
-  weekly report (the three most expensive things this week).
+- **v0.2** (in development): Claude Code skill + plugin marketplace, deterministic /
+  explanation layer split, Cursor / Gemini CLI parsers, idle
+  auto-compact suggestions, weekly report (the three most expensive
+  things this week).
 - **v1.0**: team roll-up from exported receipts, price-table freshness
   checks, export compatible with ccusage-style reports.
+
+## Support & consulting
+
+- **Sponsors.** See the Sponsors section at the top — voluntary, no
+  paywall, no unlocked features. The open-core plan is in
+  [docs/monetization.md](docs/monetization.md).
+- **Consulting.** Deployment support (wiring receipts into your team's
+  agent workflow) and feature work (custom receipt formats and reports)
+  are welcome. Reach out via GitHub Issues / Discussions on
+  [gonewiththesakura-creator/agent-receipt](https://github.com/gonewiththesakura-creator/agent-receipt)
+  — no email is published for this project.
 
 ## License
 

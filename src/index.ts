@@ -1,4 +1,6 @@
 export { buildReceipt, explainWhy } from "./receipt/receipt.js";
+export { explainReceipt, verifyExplanation, buildExplainPrompt, explainWithLlm } from "./explain/index.js";
+export type { ExplanationViolation, LlmAdapter, LlmExplainResult } from "./explain/index.js";
 export { forecastResume } from "./receipt/forecast.js";
 export { findModelSwitches } from "./receipt/check.js";
 export { parseClaudeFile } from "./parsers/claude.js";

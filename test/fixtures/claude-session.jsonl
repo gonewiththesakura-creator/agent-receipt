@@ -1,0 +1,7 @@
+{"type":"assistant","timestamp":"2026-11-09T10:00:00Z","sessionId":"s-1","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":10000,"output_tokens":2000,"cache_creation_input_tokens":50000,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-11-09T10:05:00Z","sessionId":"s-1","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":1000,"output_tokens":500,"cache_creation_input_tokens":0,"cache_read_input_tokens":50000}}}
+{"type":"assistant","timestamp":"2026-11-09T12:00:00Z","sessionId":"s-1","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":500,"output_tokens":300,"cache_creation_input_tokens":50000,"cache_read_input_tokens":0}}}
+{"type":"assistant","timestamp":"2026-11-09T12:05:00Z","sessionId":"s-1","message":{"model":"claude-opus-4-1","usage":{"input_tokens":2000,"output_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":50000}}}
+{"type":"assistant","timestamp":"2026-11-09T12:06:00Z","sessionId":"s-1","isSidechain":true,"parentUuid":"abc","message":{"model":"claude-opus-4-1","usage":{"input_tokens":1000,"output_tokens":500,"cache_creation_input_tokens":0,"cache_read_input_tokens":10000}}}
+this is not json at all
+{"type":"summary","timestamp":"2026-11-09T12:07:00Z","sessionId":"s-1","summary":"synthetic fixture, no usage"}

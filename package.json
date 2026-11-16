@@ -1,0 +1,34 @@
+{
+  "author": "gonewiththesakura-creator",
+  "bin": {
+    "agent-receipt": "./dist/cli.js"
+  },
+  "description": "A local-first cost receipt for AI coding agents: per-session receipts, cache-rewrite accounting, resume forecasts, and hard caps. No cloud, no uploads.",
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "cost",
+    "token-usage",
+    "cache",
+    "cli"
+  ],
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "name": "agent-receipt",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "test": "npm run build && node --test test/receipt.test.mjs"
+  },
+  "type": "module",
+  "version": "0.1.0"
+}

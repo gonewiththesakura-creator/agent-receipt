@@ -1,0 +1,5 @@
+{"type":"response","timestamp":"2026-11-09T10:00:00Z","session_id":"cx-1","model":"gpt-5-codex","usage":{"input_tokens":8000,"output_tokens":1000,"cached_input_tokens":20000}}
+{"type":"response","timestamp":"2026-11-09T10:10:00Z","session_id":"cx-1","model":"gpt-5-codex","usage":{"input_tokens":500,"output_tokens":200,"cached_input_tokens":20000}}
+{"type":"response","timestamp":"2026-11-09T10:20:00Z","session_id":"cx-1","model":"gpt-5-codex","usage":{"input_tokens":100,"output_tokens":50}}
+not json either
+{"type":"response","timestamp":"2026-11-09T10:30:00Z","session_id":"cx-1","model":"some-unknown-model-xyz","usage":{"input_tokens":1000,"output_tokens":100}}

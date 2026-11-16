@@ -18,6 +18,7 @@ import { explainReceipt, verifyExplanation } from "./explain/index.js";
 import { forecastResume } from "./receipt/forecast.js";
 import { findModelSwitches } from "./receipt/check.js";
 import { renderReceiptText, renderForecastText, writeReceiptFiles } from "./receipt/render.js";
+import { renderStatusline } from "./receipt/statusline.js";
 import { runWithCap } from "./cap/cap.js";
 import type { LogEntry, ParseResult } from "./types.js";
 
@@ -31,6 +32,7 @@ Usage:
   agent-receipt monthly [--month YYYY-MM] [--agent claude|codex|all] [--log-dir DIR]
   agent-receipt session <id> [--log-dir DIR]
   agent-receipt receipt [--file PATH] [--log-dir DIR] [--out DIR]
+  agent-receipt statusline [--file PATH] [--log-dir DIR] [--agent claude|codex|all] [--no-cost]
   agent-receipt explain --file receipt.json   explain a receipt (rule-based; numbers only from the receipt)
   agent-receipt check [--file PATH] [--log-dir DIR]        model-switch report
   agent-receipt resume --forecast --file PATH [--ttl-minutes N]
@@ -56,6 +58,7 @@ interface Flags {
   quotaTokens?: number;
   ttlMinutes?: number;
   forecast?: boolean;
+  noCost?: boolean;
 }
 
 function parseFlags(args: string[]): { flags: Flags; rest: string[] } {
@@ -75,6 +78,7 @@ function parseFlags(args: string[]): { flags: Flags; rest: string[] } {
     else if (a === "--quota-tokens") flags.quotaTokens = Number(next());
     else if (a === "--ttl-minutes") flags.ttlMinutes = Number(next());
     else if (a === "--forecast") flags.forecast = true;
+    else if (a === "--no-cost") flags.noCost = true;
     else if (a === "--") rest.push(...args.slice(i + 1));
     else rest.push(a);
   }
@@ -176,6 +180,31 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     return printReceipt(latest, r.skippedLines, flags, "latest session");
+  }
+
+  if (cmd === "statusline") {
+    // 状态栏只吃一行：今天最新会话的收据；--file 时取该文件里的最新会话。
+    const r = loadEntries(flags);
+    let entries: LogEntry[] | undefined;
+    const pool = flags.file
+      ? r.entries
+      : filterByDate(r.entries, new Date().toISOString().slice(0, 10));
+    const sessions = groupBySession(pool);
+    let latestMs = -1;
+    for (const es of sessions.values()) {
+      const ms = es[es.length - 1]?.timestampMs ?? -1;
+      if (ms > latestMs) {
+        latestMs = ms;
+        entries = es;
+      }
+    }
+    if (!entries || entries.length === 0) {
+      console.log("agent-receipt: no logs found");
+      return 0;
+    }
+    const receipt = buildReceipt(entries, { skippedLines: r.skippedLines });
+    console.log(renderStatusline(receipt, { noCost: flags.noCost }));
+    return 0;
   }
 
   if (cmd === "explain") {

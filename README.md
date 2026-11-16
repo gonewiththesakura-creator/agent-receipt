@@ -33,10 +33,9 @@ burned by session resumes — and budget alerts are not hard caps.
 ## Quick start
 
 ```bash
-npm install -g agent-receipt   # once published; for now, see "Development"
-# or, from this directory:
-npm install
-npm run build
+git clone https://github.com/gonewiththesakura-creator/agent-receipt.git
+cd agent-receipt && npm install && npm run build
+node dist/cli.js daily
 
 # Receipt for today (reads ~/.claude/projects and ~/.codex/sessions)
 node dist/cli.js daily
@@ -125,6 +124,42 @@ The skill routes each question to the CLI (`receipt`, `explain`,
 `resume --forecast`, `check`, `run --cap`) — every number it reports
 comes from the CLI's deterministic output, never from the model's own
 arithmetic. Details: `skills/agent-receipt/SKILL.md`.
+
+## 状态栏（Status line）
+
+想在 Claude Code 状态栏里常驻看到当前会话花了多少钱，用 `statusline`
+命令（灵感来自 ccusage 的 `ccusage statusline`）：
+
+```bash
+node dist/cli.js statusline
+```
+
+输出严格只有一行，例如（合成夹具的真实输出）：
+
+```
+💰 $0.71 · 228.8k tokens · 26% rewrite · switch +$0.25
+```
+
+在 Claude Code 的 `settings.json` 里接上（`~/.claude/settings.json`）：
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "node /绝对路径/agent-receipt/dist/cli.js statusline"
+  }
+}
+```
+
+注意：
+
+- 路径必须是绝对路径，且要先跑过 `npm run build`（`dist/cli.js` 由构建生成）。
+- 它只读本地日志，不发网络、不写文件；没有当天日志时只输出一行
+  `agent-receipt: no logs found`，不编数据。
+- 订阅用户（不看美元）可以加 `--no-cost`，只显示 token 数与占比。
+- 显示规则：美元两位小数；有模型不在标价表里时不显示美元，只显示
+  token 数并提示 `no $ price`；缓存重写占比 ≥20% 才显示 `N% rewrite`；
+  模型切换后段成本占比 ≥15% 才显示 `switch +$X.XX`。
 
 ## How it works
 
@@ -236,7 +271,7 @@ Node >= 20. No runtime dependencies; TypeScript is a dev dependency only.
 - **v0.2** (in development): Claude Code skill + plugin marketplace, deterministic /
   explanation layer split, Cursor / Gemini CLI parsers, idle
   auto-compact suggestions, weekly report (the three most expensive
-  things this week).
+  things this week), Claude Code 状态栏 statusline.
 - **v1.0**: team roll-up from exported receipts, price-table freshness
   checks, export compatible with ccusage-style reports.
 

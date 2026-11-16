@@ -19,6 +19,7 @@ const { buildReceipt } = await import("../dist/receipt/receipt.js");
 const { forecastResume } = await import("../dist/receipt/forecast.js");
 const { findModelSwitches } = await import("../dist/receipt/check.js");
 const { explainReceipt, verifyExplanation, explainWithLlm } = await import("../dist/explain/index.js");
+const { renderStatusline, compactTokens } = await import("../dist/receipt/statusline.js");
 
 const approx = (a, b, eps = 1e-9) =>
   assert.ok(a !== null && Math.abs(a - b) < eps, `expected ${b}, got ${a}`);
@@ -285,4 +286,70 @@ test("CLI explain reads a receipt JSON and prints only receipt-backed lines", as
   ]);
   assert.match(stdout, /cache rewrite/i);
   assert.match(stdout, /\$0\.1875/);
+});
+
+// --- 9. 状态栏 statusline：严格一行，只读收据字段 ---
+test("statusline compact token format", () => {
+  assert.equal(compactTokens(228800), "228.8k");
+  assert.equal(compactTokens(999), "999");
+  assert.equal(compactTokens(1000), "1k");
+  assert.equal(compactTokens(1500000), "1.5M");
+});
+
+test("statusline with dollars: one line, $0.71, rewrite and switch shown", () => {
+  const r = parseClaudeFile(join(fixtures, "claude-session.jsonl"));
+  const receipt = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  const line = renderStatusline(receipt);
+  assert.equal(line.split("\n").length, 1);
+  // 总成本 $0.714 -> $0.71；重写 $0.1875 占 26%；切换后段 $0.2475 占 35%。
+  assert.equal(line, "💰 $0.71 · 228.8k tokens · 26% rewrite · switch +$0.25");
+});
+
+test("statusline with unknown prices: no dollars, only tokens plus 'no $ price'", () => {
+  const r = parseCodexFile(join(fixtures, "codex-session.jsonl"));
+  const receipt = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  assert.equal(receipt.costUsd, null);
+  const line = renderStatusline(receipt);
+  assert.equal(line.split("\n").length, 1);
+  assert.match(line, /51k tokens · no \$ price/);
+  assert.doesNotMatch(line, /\$\d/); // 没有任何美元数字
+});
+
+test("statusline --no-cost: tokens and rewrite only, no dollar signs at all", () => {
+  const r = parseClaudeFile(join(fixtures, "claude-session.jsonl"));
+  const receipt = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  const line = renderStatusline(receipt, { noCost: true });
+  assert.equal(line, "228.8k tokens · 26% rewrite");
+  assert.equal(line.includes("$"), false);
+});
+
+test("statusline hides rewrite below 20%", () => {
+  const r = parseClaudeFile(join(fixtures, "claude-session.jsonl"));
+  const receipt = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  // 重写成本改成 $0.01，只占总成本约 1%，不应出现在状态栏。
+  const small = { ...receipt, cacheRewriteCostUsd: 0.01 };
+  assert.doesNotMatch(renderStatusline(small), /rewrite/);
+});
+
+test("CLI statusline on a fixture file prints exactly one line with $0.71", async () => {
+  const { stdout } = await execFileAsync(process.execPath, [
+    cli,
+    "statusline",
+    "--file",
+    join(fixtures, "claude-session.jsonl"),
+  ]);
+  const lines = stdout.trim().split("\n");
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /\$0\.71/);
+});
+
+test("CLI statusline with no logs prints one line and exits 0", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-receipt-statusline-empty-"));
+  const { stdout } = await execFileAsync(process.execPath, [
+    cli,
+    "statusline",
+    "--log-dir",
+    dir,
+  ]);
+  assert.equal(stdout.trim(), "agent-receipt: no logs found");
 });

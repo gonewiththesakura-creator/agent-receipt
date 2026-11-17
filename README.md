@@ -1,5 +1,7 @@
 # agent-receipt
 
+[![Tests](https://github.com/gonewiththesakura-creator/agent-receipt/actions/workflows/test.yml/badge.svg)](https://github.com/gonewiththesakura-creator/agent-receipt/actions/workflows/test.yml)
+
 A cost receipt for AI coding agents. Local-first, no cloud, no uploads.
 
 ## Sponsors

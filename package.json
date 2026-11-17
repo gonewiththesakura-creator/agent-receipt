@@ -27,7 +27,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
-    "test": "npm run build && node --test test/receipt.test.mjs"
+    "test": "npm run build && node --test test/receipt.test.mjs test/skill.test.mjs"
   },
   "type": "module",
   "version": "0.2.0-dev"

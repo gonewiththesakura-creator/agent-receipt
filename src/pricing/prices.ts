@@ -10,6 +10,25 @@
  * unknown model instead of guessing: in that case the receipt reports
  * token counts only and says the price is unknown.
  *
+ * Last verified 2026-11-19 against:
+ *   - https://platform.claude.com/docs/en/about-claude/pricing
+ *   - https://platform.openai.com/docs/pricing
+ * That check found the table was 3x too high for Claude Opus 4.5–4.8
+ * (the old `claude-opus-4` prefix priced them at Opus 4.1 rates) and
+ * was missing every Claude 5-family, Fable and Mythos model, so those
+ * sessions reported tokens only. Both are fixed below.
+ *
+ * Deliberately NOT priced:
+ *   - Claude Haiku 5.5: its price depends on prompt length (up to
+ *     100k tokens vs over 100k), which a receipt cannot attribute per
+ *     request, so it stays tokens-only rather than guessed.
+ *   - Claude Sonnet 5 input/output are derived from the same page's
+ *     Batch table (batch is a flat 50% discount: $1/$5 batch implies
+ *     $2/$10 standard); the cache columns come from its main row.
+ *   - GPT-5 / GPT-5-Codex rows were not visible on the OpenAI pricing
+ *     page at verification time, so their earlier entries are unchanged
+ *     and still carry the old version's uncertainty.
+ *
  * Dollar figures produced from this table are ALWAYS estimates at
  * published list prices, not your invoice. Never present them as a
  * bill. See README.md "Honest limits".
@@ -25,21 +44,61 @@ export interface ModelPrices {
   output: number;
 }
 
-export const PRICE_TABLE_VERSION = "2026-11-09";
+export const PRICE_TABLE_VERSION = "2026-11-19";
 export const PRICE_TABLE_SOURCE =
-  "Anthropic and OpenAI published list prices, as known November 2026. " +
-  "Verify against the vendor pricing page before relying on any figure.";
+  "Anthropic and OpenAI published list prices, verified 2026-11-19 against " +
+  "platform.claude.com/docs/en/about-claude/pricing and " +
+  "platform.openai.com/docs/pricing. Verify against the vendor pricing page " +
+  "before relying on any figure.";
+
+/**
+ * Prefixes that must never fall through to a family price: their price
+ * depends on something a receipt cannot see, so guessing would be worse
+ * than reporting tokens only. Checked before TABLE in priceFor().
+ */
+const UNPRICED_PREFIXES = [
+  // Haiku 5.5: $0.10/$0.50 per 1M for prompts up to 100k tokens,
+  // $0.50/$2.50 above that. The receipt does not track prompt length
+  // per request, so no single price is correct.
+  "claude-haiku-5-5",
+];
 
 /** Prefix-matched, in order. First match wins. */
 const TABLE: Array<{ prefix: string; prices: ModelPrices }> = [
   // Claude family (Anthropic). Cache write 5m TTL; 1h TTL costs more.
+  // Opus 5.5's cache read is 0.05x input ($0.20), not the usual 0.1x.
+  { prefix: "claude-opus-5-5", prices: { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20 } },
+  { prefix: "claude-opus-5", prices: { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 } },
+  // Opus 4.5–4.8 dropped to $5/$25; Opus 4 / 4.1 stay at $15/$75 below.
+  // These must come before "claude-opus-4" or they would be priced 3x high.
+  { prefix: "claude-opus-4-8", prices: { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 } },
+  { prefix: "claude-opus-4-7", prices: { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 } },
+  { prefix: "claude-opus-4-6", prices: { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 } },
+  { prefix: "claude-opus-4-5", prices: { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 } },
   { prefix: "claude-opus-4", prices: { input: 15, cacheWrite: 18.75, cacheRead: 1.5, output: 75 } },
   { prefix: "claude-opus", prices: { input: 15, cacheWrite: 18.75, cacheRead: 1.5, output: 75 } },
+  { prefix: "claude-sonnet-5-5", prices: { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 } },
+  { prefix: "claude-sonnet-5", prices: { input: 2, cacheWrite: 2.5, cacheRead: 0.2, output: 10 } },
   { prefix: "claude-sonnet-4", prices: { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 } },
   { prefix: "claude-sonnet", prices: { input: 3, cacheWrite: 3.75, cacheRead: 0.3, output: 15 } },
   { prefix: "claude-haiku-4", prices: { input: 1, cacheWrite: 1.25, cacheRead: 0.1, output: 5 } },
   { prefix: "claude-haiku", prices: { input: 1, cacheWrite: 1.25, cacheRead: 0.1, output: 5 } },
+  // Fable / Mythos: cache read is 0.025x input, except Fable/Mythos 5 (0.1x).
+  { prefix: "claude-fable-5-2", prices: { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 } },
+  { prefix: "claude-fable-5-1", prices: { input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50 } },
+  { prefix: "claude-fable-5", prices: { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 } },
+  { prefix: "claude-mythos-5-2", prices: { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 } },
+  { prefix: "claude-mythos-5-1", prices: { input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50 } },
+  { prefix: "claude-mythos-5", prices: { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 } },
   // Codex / OpenAI family. Cached input is the cache-read price.
+  // GPT-6 variants verified 2026-11-19; the generic gpt-6 / gpt-5 / gpt-4
+  // entries below are unchanged from the previous table version.
+  { prefix: "gpt-6.2-astra", prices: { input: 8, cacheWrite: 10, cacheRead: 0.4, output: 40 } },
+  { prefix: "gpt-6.2-sol", prices: { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 } },
+  { prefix: "gpt-6-astra", prices: { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 } },
+  { prefix: "gpt-6.1-sol", prices: { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 } },
+  { prefix: "gpt-6-cyber", prices: { input: 20, cacheWrite: 25, cacheRead: 2, output: 100 } },
+  { prefix: "gpt-6-rosalind", prices: { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 } },
   { prefix: "gpt-6", prices: { input: 1.25, cacheWrite: 1.25, cacheRead: 0.125, output: 10 } },
   { prefix: "gpt-5-codex", prices: { input: 1.25, cacheWrite: 1.25, cacheRead: 0.125, output: 10 } },
   { prefix: "gpt-5", prices: { input: 1.25, cacheWrite: 1.25, cacheRead: 0.125, output: 10 } },
@@ -50,6 +109,11 @@ const TABLE: Array<{ prefix: string; prices: ModelPrices }> = [
 export function priceFor(model: string | undefined): ModelPrices | null {
   if (!model) return null;
   const lower = model.toLowerCase();
+  // Never guess from a family fallback for these: their price depends on
+  // something the receipt cannot see (e.g. Haiku 5.5's prompt-length tier).
+  for (const prefix of UNPRICED_PREFIXES) {
+    if (lower.startsWith(prefix)) return null;
+  }
   for (const entry of TABLE) {
     if (lower.startsWith(entry.prefix)) return entry.prices;
   }

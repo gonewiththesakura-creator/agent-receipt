@@ -20,6 +20,9 @@ const { forecastResume } = await import("../dist/receipt/forecast.js");
 const { findModelSwitches } = await import("../dist/receipt/check.js");
 const { explainReceipt, verifyExplanation, explainWithLlm } = await import("../dist/explain/index.js");
 const { renderStatusline, compactTokens } = await import("../dist/receipt/statusline.js");
+const { priceFor, costOf, PRICE_TABLE_VERSION } = await import("../dist/pricing/prices.js");
+const { buildWeeklyReport, weeklyWindow, topDriverOf } = await import("../dist/receipt/weekly.js");
+const { renderWeeklyText } = await import("../dist/receipt/render.js");
 
 const approx = (a, b, eps = 1e-9) =>
   assert.ok(a !== null && Math.abs(a - b) < eps, `expected ${b}, got ${a}`);
@@ -352,4 +355,157 @@ test("CLI statusline with no logs prints one line and exits 0", async () => {
     dir,
   ]);
   assert.equal(stdout.trim(), "agent-receipt: no logs found");
+});
+
+// --- 10. 周报 weekly：窗口内按会话排最贵的 3 个，带主因 ---
+// Sonnet $3 in / $3.75 cache-write / $0.30 cache-read / $15 out per 1M.
+// Session A (2026-11-16): msg1 (10000*3 + 50000*3.75 + 2000*15)/1e6 = 0.2475;
+//   msg2 after a 2h gap (1000*3 + 50000*3.75 + 500*15)/1e6 = 0.1980 (rewrite 0.1875).
+//   Session A total 0.4455, rewrite share 42%.
+// Session B (2026-11-17): (1000*3 + 100*15)/1e6 = 0.0045.
+// Session C (2026-11-01): outside the 7-day window ending 2026-11-18.
+function weeklyEntry(sessionId, iso, usage, subagent = false) {
+  return {
+    agent: "claude",
+    sessionId,
+    project: "proj",
+    model: "claude-sonnet-4-5",
+    timestamp: iso,
+    timestampMs: new Date(iso).getTime(),
+    usage,
+    subagent,
+  };
+}
+
+test("weeklyWindow: 7 days ending on the end date, inclusive", () => {
+  const { startMs, endMs } = weeklyWindow("2026-11-18", 7);
+  assert.equal(new Date(startMs).toISOString().slice(0, 10), "2026-11-12");
+  assert.equal(new Date(endMs).toISOString().slice(0, 10), "2026-11-18");
+});
+
+test("weekly report ranks sessions by cost and names the top driver", () => {
+  const entries = [
+    weeklyEntry("s-A", "2026-11-16T10:00:00Z", { input: 10000, output: 2000, cacheWrite: 50000, cacheRead: 0 }),
+    weeklyEntry("s-A", "2026-11-16T12:00:00Z", { input: 1000, output: 500, cacheWrite: 50000, cacheRead: 0 }),
+    weeklyEntry("s-B", "2026-11-17T10:00:00Z", { input: 1000, output: 100, cacheWrite: 0, cacheRead: 0 }),
+    weeklyEntry("s-C", "2026-11-01T10:00:00Z", { input: 100000, output: 10000, cacheWrite: 0, cacheRead: 0 }),
+    { ...weeklyEntry("s-A", "2026-11-16T13:00:00Z", { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }), timestamp: undefined, timestampMs: undefined },
+  ];
+  const w = buildWeeklyReport(entries, { endDate: "2026-11-18", days: 7 });
+  assert.equal(w.startDate, "2026-11-12");
+  assert.equal(w.sessionCount, 2); // s-C is outside the window
+  assert.equal(w.untimestampedEntries, 1);
+  approx(w.totalCostUsd, 0.45);
+  assert.equal(w.topSessions.length, 2);
+  assert.equal(w.topSessions[0].sessionId, "s-A");
+  approx(w.topSessions[0].costUsd, 0.4455);
+  assert.match(w.topSessions[0].topDriver, /cache rewrites \$0\.1875 \(42%\)/);
+  assert.equal(w.topSessions[1].sessionId, "s-B");
+  assert.equal(w.topSessions[1].topDriver, "spread across messages (no single driver)");
+  approx(w.totalCacheRewriteCostUsd, 0.1875);
+});
+
+test("weekly report with no priced model: total null, sessions still ranked by tokens", () => {
+  const entries = [
+    { ...weeklyEntry("s-X", "2026-11-17T10:00:00Z", { input: 5000, output: 500, cacheWrite: 0, cacheRead: 0 }), model: "unknown-model-9" },
+  ];
+  const w = buildWeeklyReport(entries, { endDate: "2026-11-18", days: 7 });
+  assert.equal(w.totalCostUsd, null);
+  assert.equal(w.unknownCostSessions, 1);
+  assert.equal(w.topSessions[0].sessionId, "s-X");
+});
+
+test("CLI weekly on fixture logs prints the top session with its driver", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-receipt-weekly-"));
+  const projDir = join(dir, "proj");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(projDir, { recursive: true });
+  const line = (sessionId, iso, input, output, cacheWrite) =>
+    JSON.stringify({ type: "assistant", timestamp: iso, sessionId, message: { model: "claude-sonnet-4-5", usage: { input_tokens: input, output_tokens: output, cache_creation_input_tokens: cacheWrite, cache_read_input_tokens: 0 } } });
+  writeFileSync(join(projDir, "s-a.jsonl"), [
+    line("s-a", "2026-11-16T10:00:00Z", 10000, 2000, 50000),
+    line("s-a", "2026-11-16T12:00:00Z", 1000, 500, 50000),
+    "",
+  ].join("\n"));
+  writeFileSync(join(projDir, "s-b.jsonl"), line("s-b", "2026-11-17T10:00:00Z", 1000, 100, 0) + "\n");
+  const { stdout } = await execFileAsync(process.execPath, [
+    cli, "weekly", "--date", "2026-11-18", "--log-dir", dir,
+  ]);
+  assert.match(stdout, /weekly report \(2026-11-12 to 2026-11-18, 7 days\)/);
+  assert.match(stdout, /Most expensive sessions/);
+  assert.match(stdout, /1\. s-a/);
+  assert.match(stdout, /cache rewrites \$0\.1875 \(42%\)/);
+  assert.match(stdout, /2\. s-b/);
+});
+
+test("CLI weekly with an empty log dir reports nothing invented", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-receipt-weekly-empty-"));
+  const { stdout } = await execFileAsync(process.execPath, [
+    cli, "weekly", "--date", "2026-11-18", "--log-dir", dir,
+  ]);
+  assert.match(stdout, /No log entries found for weekly/);
+});
+
+test("CLI weekly rejects --days outside 1..90", async () => {
+  await assert.rejects(
+    execFileAsync(process.execPath, [cli, "weekly", "--days", "0"]),
+    /--days must be an integer between 1 and 90/,
+  );
+});
+
+// --- 11. 标价表：2026-11-19 对厂商定价页核实后的价格 ---
+// 来源：platform.claude.com/docs/en/about-claude/pricing 与
+// platform.openai.com/docs/pricing（2026-11-19 查阅）。数字按每 1M token。
+test("price table version is the verified 2026-11-19 table", () => {
+  assert.equal(PRICE_TABLE_VERSION, "2026-11-19");
+});
+
+test("price table: Opus 4.5-4.8 are $5/$25, not the old Opus 4.1 $15/$75", () => {
+  // Regression: the old "claude-opus-4" prefix priced Opus 4.5 sessions 3x high.
+  for (const model of ["claude-opus-4-5", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8"]) {
+    assert.deepEqual(priceFor(model), { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 });
+  }
+  // Opus 4 / 4.1 really are $15/$75 — the fix must not change them.
+  assert.deepEqual(priceFor("claude-opus-4-1"), { input: 15, cacheWrite: 18.75, cacheRead: 1.5, output: 75 });
+  assert.deepEqual(priceFor("claude-opus-4"), { input: 15, cacheWrite: 18.75, cacheRead: 1.5, output: 75 });
+});
+
+test("price table: Claude 5-family, Fable and Mythos are priced", () => {
+  assert.deepEqual(priceFor("claude-opus-5-5"), { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20 });
+  assert.deepEqual(priceFor("claude-opus-5"), { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 });
+  assert.deepEqual(priceFor("claude-sonnet-5-5"), { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 });
+  assert.deepEqual(priceFor("claude-sonnet-5"), { input: 2, cacheWrite: 2.5, cacheRead: 0.2, output: 10 });
+  assert.deepEqual(priceFor("claude-fable-5-2"), { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 });
+  assert.deepEqual(priceFor("claude-fable-5-1"), { input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50 });
+  assert.deepEqual(priceFor("claude-fable-5"), { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 });
+  assert.deepEqual(priceFor("claude-mythos-5-2"), { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 });
+  assert.deepEqual(priceFor("claude-mythos-5"), { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 });
+  // Dated model ids still match by prefix.
+  assert.deepEqual(priceFor("claude-opus-5-20261101"), { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 });
+});
+
+test("price table: Haiku 5.5 stays unpriced (prompt-length tiered, never guessed)", () => {
+  assert.equal(priceFor("claude-haiku-5-5"), null);
+  assert.equal(priceFor("claude-haiku-5-5-20261101"), null);
+  assert.equal(costOf("claude-haiku-5-5", { input: 1000, cacheWrite: 0, cacheRead: 0, output: 100 }), null);
+  // Haiku 4.5 is still priced.
+  assert.deepEqual(priceFor("claude-haiku-4-5"), { input: 1, cacheWrite: 1.25, cacheRead: 0.1, output: 5 });
+});
+
+test("price table: GPT-6 variants priced, unknown models still null", () => {
+  assert.deepEqual(priceFor("gpt-6.2-astra"), { input: 8, cacheWrite: 10, cacheRead: 0.4, output: 40 });
+  assert.deepEqual(priceFor("gpt-6.2-sol"), { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 });
+  assert.deepEqual(priceFor("gpt-6-astra"), { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 });
+  assert.deepEqual(priceFor("gpt-6.1-sol"), { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 });
+  assert.deepEqual(priceFor("gpt-6-cyber"), { input: 20, cacheWrite: 25, cacheRead: 2, output: 100 });
+  assert.deepEqual(priceFor("gpt-6-rosalind"), { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 });
+  // The "-law" variants share their base model's price via the same prefix.
+  assert.deepEqual(priceFor("gpt-6.2-astra-law"), { input: 8, cacheWrite: 10, cacheRead: 0.4, output: 40 });
+  assert.equal(priceFor("some-unknown-model-xyz"), null);
+});
+
+test("price table: an Opus 4.5 session costs a third of the old (wrong) figure", () => {
+  const usage = { input: 1_000_000, cacheWrite: 0, cacheRead: 0, output: 1_000_000 };
+  approx(costOf("claude-opus-4-5", usage), 30); // $5 in + $25 out
+  approx(costOf("claude-opus-4-1", usage), 90); // $15 in + $75 out
 });

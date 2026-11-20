@@ -25,7 +25,8 @@ compatibility: 需要 Node.js >= 20 与本地 Claude Code（~/.claude/projects�
 
 | 用户想做的事 | 怎么做（脚本路径以本 skill 目录为准） |
 |---|---|
-| 看今天 / 本月 / 某会话的收据 | `node scripts/receipt.mjs daily`、`monthly`、`session <id>` 或 `receipt --file <会话 .jsonl>`，见 `scripts/receipt.mjs` |
+| 看今天 / 本周 / 本月 / 某会话的收据 | `node scripts/receipt.mjs daily`、`weekly`、`monthly`、`session <id>` 或 `receipt --file <会话 .jsonl>`，见 `scripts/receipt.mjs` |
+| 问“这周最贵的是什么” | `node scripts/receipt.mjs weekly [--date YYYY-MM-DD] [--days N]`：窗口内最贵的 3 个会话，各带主因 |
 | 问“为什么这么贵” | 先出收据（同上），再 `node scripts/explain.mjs --receipt <receipt.json>`，只解释收据里的数字 |
 | 问“resume 一下要多少钱” | `node scripts/receipt.mjs resume --forecast --file <会话 .jsonl>` |
 | 问“有没有偷偷换模型” | `node scripts/receipt.mjs check --file <会话 .jsonl>` |
@@ -79,8 +80,9 @@ compatibility: 需要 Node.js >= 20 与本地 Claude Code（~/.claude/projects�
 - 用户：“resume 一下要多少钱？”
   → `resume --forecast`，讲清缓存是否已过期、resume 重写多少钱、
   以及“先 compact 再 resume 更便宜”的建议。
-- 用户：“帮我把这次任务控在 5 美元内。”
-  → `run --cap 5 -- <用户要跑的命令>`，并说明 cap 可能晚一个请求。
+- 用户：“这周花了多少钱？最贵的是什么？”
+  → `node scripts/receipt.mjs weekly`，报周总计与最贵的 3 个会话、
+  各自的主因（缓存重写 / 子代理 / 模型切换）；没有日志就直说没有数据。
 
 ## 边界情况
 

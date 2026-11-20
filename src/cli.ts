@@ -17,7 +17,8 @@ import { buildReceipt } from "./receipt/receipt.js";
 import { explainReceipt, verifyExplanation } from "./explain/index.js";
 import { forecastResume } from "./receipt/forecast.js";
 import { findModelSwitches } from "./receipt/check.js";
-import { renderReceiptText, renderForecastText, writeReceiptFiles } from "./receipt/render.js";
+import { renderReceiptText, renderForecastText, renderWeeklyText, writeReceiptFiles, writeWeeklyFiles } from "./receipt/render.js";
+import { buildWeeklyReport } from "./receipt/weekly.js";
 import { renderStatusline } from "./receipt/statusline.js";
 import { runWithCap } from "./cap/cap.js";
 import type { LogEntry, ParseResult } from "./types.js";
@@ -30,6 +31,7 @@ function usage(): string {
 Usage:
   agent-receipt daily [--date YYYY-MM-DD] [--agent claude|codex|all] [--log-dir DIR]
   agent-receipt monthly [--month YYYY-MM] [--agent claude|codex|all] [--log-dir DIR]
+  agent-receipt weekly [--date YYYY-MM-DD] [--days N] [--agent claude|codex|all] [--log-dir DIR] [--out DIR]
   agent-receipt session <id> [--log-dir DIR]
   agent-receipt receipt [--file PATH] [--log-dir DIR] [--out DIR]
   agent-receipt statusline [--file PATH] [--log-dir DIR] [--agent claude|codex|all] [--no-cost]
@@ -49,6 +51,7 @@ Notes:
 interface Flags {
   date?: string;
   month?: string;
+  days?: number;
   agent?: "claude" | "codex" | "all";
   logDir?: string;
   file?: string;
@@ -69,6 +72,7 @@ function parseFlags(args: string[]): { flags: Flags; rest: string[] } {
     const next = () => args[++i];
     if (a === "--date") flags.date = next();
     else if (a === "--month") flags.month = next();
+    else if (a === "--days") flags.days = Number(next());
     else if (a === "--agent") flags.agent = next() as Flags["agent"];
     else if (a === "--log-dir") flags.logDir = next();
     else if (a === "--file") flags.file = next();
@@ -143,6 +147,34 @@ async function main(argv: string[]): Promise<number> {
     const month = flags.month ?? new Date().toISOString().slice(0, 7);
     const r = loadEntries(flags);
     return printReceipt(filterByDate(r.entries, month), r.skippedLines, flags, `monthly (${month})`);
+  }
+
+  if (cmd === "weekly") {
+    // The report a human actually reads: the 3 most expensive sessions of
+    // the window, each with its main cost driver. Daily is too noisy to
+    // review every morning; monthly arrives too late.
+    const days = flags.days ?? 7;
+    if (!Number.isInteger(days) || days < 1 || days > 90) {
+      console.error("--days must be an integer between 1 and 90.");
+      return 2;
+    }
+    const endDate = flags.date ?? new Date().toISOString().slice(0, 10);
+    const r = loadEntries(flags);
+    const report = buildWeeklyReport(r.entries, { endDate, days, skippedLines: r.skippedLines });
+    if (report.sessionCount === 0) {
+      console.log(
+        `No log entries found for weekly (${report.startDate} to ${report.endDate}). Nothing to report — no data was invented.`,
+      );
+      if (r.skippedLines > 0) console.log(`(${r.skippedLines} malformed line(s) were skipped.)`);
+      return 0;
+    }
+    console.log(renderWeeklyText(report));
+    if (flags.out) {
+      if (!existsSync(flags.out)) mkdirSync(flags.out, { recursive: true });
+      const { mdPath, jsonPath } = writeWeeklyFiles(report, flags.out);
+      console.log(`\nReport written to ${mdPath} and ${jsonPath}`);
+    }
+    return 0;
   }
 
   if (cmd === "session") {

@@ -7,7 +7,8 @@
  *
  * 用法（在 skill 目录里）：
  *   node scripts/receipt.mjs daily
- *   node scripts/receipt.mjs receipt --file <会话 .jsonl> [--out DIR]
+ *   node scripts/receipt.mjs weekly [--date YYYY-MM-DD] [--days N] [--out DIR]
+ *   node scripts/receipt.mjs monthly [--month YYYY-MM]
  *   node scripts/receipt.mjs resume --forecast --file <会话 .jsonl>
  *   node scripts/receipt.mjs check --file <会话 .jsonl>
  *   node scripts/receipt.mjs run --cap 5 -- claude

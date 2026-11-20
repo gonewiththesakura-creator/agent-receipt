@@ -41,6 +41,8 @@ node dist/cli.js daily
 
 # Receipt for today (reads ~/.claude/projects and ~/.codex/sessions)
 node dist/cli.js daily
+# Weekly report: the 3 most expensive sessions of the last 7 days, each with its main cost driver
+node dist/cli.js weekly [--date YYYY-MM-DD] [--days N] [--out ./reports]
 # Receipt for a whole month (defaults to the current month)
 node dist/cli.js monthly [--month YYYY-MM]
 # Receipt for one session by id
@@ -100,12 +102,12 @@ The numbers above are from the synthetic fixture in
 `test/fixtures/claude-session.jsonl` — small made-up numbers, not a real
 bill. See `docs/receipt-example.md` for the same receipt in Markdown.
 
-## As a Claude Code skill
+## As a skill (Claude Code, Codex, Cursor)
 
-`agent-receipt` ships as a Claude Code skill (see `skills/agent-receipt/`,
+`agent-receipt` ships as a skill (see `skills/agent-receipt/`,
 built after the [Agent Skills spec](https://agentskills.io/specification)
 and Anthropic's [anthropics/skills](https://github.com/anthropics/skills)
-repo): ask Claude Code about session cost and it loads the skill.
+repo): ask your coding agent about session cost and it loads the skill.
 
 Install as a plugin marketplace (in Claude Code):
 
@@ -126,6 +128,13 @@ The skill routes each question to the CLI (`receipt`, `explain`,
 `resume --forecast`, `check`, `run --cap`) — every number it reports
 comes from the CLI's deterministic output, never from the model's own
 arithmetic. Details: `skills/agent-receipt/SKILL.md`.
+
+Codex and Cursor ship the same skill from the same directory: the repo
+also carries `.codex-plugin/plugin.json` and `.cursor-plugin/plugin.json`
+(layout follows obra/superpowers, which ships one plugin manifest per
+host). Installing from this repo in a real Codex or Cursor has not been
+verified yet — the manifests are there, the install path is still
+unproven, same caveat as the Claude Code marketplace command above.
 
 ## 状态栏（Status line）
 
@@ -172,8 +181,14 @@ node dist/cli.js statusline
   formats vary, so unknown fields are skipped and unknown lines are
   counted, never fatal.
 - **Pricing.** `src/pricing/prices.ts` is a versioned table
-  (current version `2026-11-09`) of published list prices. Dollar
-  figures are **estimates at published list prices, not your invoice**.
+  (current version `2026-11-19`, verified that day against the
+  Anthropic and OpenAI pricing pages) of published list prices. It
+  covers the Claude 5 family, Fable, Mythos and GPT-6 variants; the
+  2026-11-19 check fixed Opus 4.5–4.8, which the old table had priced
+  3x too high. Claude Haiku 5.5 is intentionally unpriced — its price
+  depends on prompt length, which a receipt cannot attribute, so it
+  reports tokens only. Dollar figures are **estimates at published
+  list prices, not your invoice**.
   A model with no price in the table reports token counts only and says
   so on the receipt — it never guesses a price.
 - **Subscription vs API.** Subscription users have no dollar bill, so
@@ -270,10 +285,12 @@ Node >= 20. No runtime dependencies; TypeScript is a dev dependency only.
 
 - **v0.1**: Claude Code + Codex receipts, API hard cap,
   model-switch report + logging hook, resume forecast.
-- **v0.2** (in development): Claude Code skill + plugin marketplace, deterministic /
+- **v0.2** (in development): Claude Code skill + plugin marketplace (plus
+  Codex / Cursor plugin manifests), deterministic /
   explanation layer split, Cursor / Gemini CLI parsers, idle
-  auto-compact suggestions, weekly report (the three most expensive
-  things this week), Claude Code 状态栏 statusline.
+  auto-compact suggestions, Claude Code 状态栏 statusline.
+  Weekly report (`weekly`: the three most expensive sessions of the
+  window, each with its main cost driver) is done.
 - **v1.0**: team roll-up from exported receipts, price-table freshness
   checks, export compatible with ccusage-style reports.
 

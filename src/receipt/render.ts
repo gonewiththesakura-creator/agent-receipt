@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import type { Receipt } from "./receipt.js";
 import type { ResumeForecast } from "./forecast.js";
+import type { WeeklyReport } from "./weekly.js";
 
 function usd(n: number | null): string {
   return n === null ? "unknown (price not in table)" : `$${n.toFixed(4)}`;
@@ -123,6 +124,84 @@ export function renderForecastText(f: ResumeForecast): string {
   lines.push("");
   lines.push("Estimate at published list prices, not your invoice.");
   return lines.join("\n");
+}
+
+export function renderWeeklyText(w: WeeklyReport): string {
+  const lines: string[] = [];
+  lines.push(`agent-receipt — weekly report (${w.startDate} to ${w.endDate}, ${w.days} days)`);
+  lines.push("=".repeat(52));
+  lines.push(row("Sessions:", String(w.sessionCount)));
+  lines.push(row("Total tokens:", w.totalTokens.toLocaleString()));
+  lines.push(
+    row(
+      "Total cost (estimate):",
+      w.totalCostUsd === null
+        ? "unknown (no priced model in this window)"
+        : `$${w.totalCostUsd.toFixed(4)}` +
+            (w.unknownCostSessions > 0
+              ? ` — plus ${w.unknownCostSessions} session(s) with unknown price (not included)`
+              : ""),
+    ),
+  );
+  lines.push(row("Cache rewrites:", usd(w.totalCacheRewriteCostUsd)));
+  lines.push(row("Subagents:", usd(w.totalSubagentCostUsd)));
+  lines.push(row("Model switches:", String(w.modelSwitchCount)));
+  if (w.untimestampedEntries > 0) {
+    lines.push(`Note: ${w.untimestampedEntries} entr(ies) had no timestamp and were excluded from this window.`);
+  }
+  if (w.skippedLines > 0) lines.push(`(${w.skippedLines} malformed line(s) were skipped.)`);
+  lines.push("");
+  if (w.topSessions.length === 0) {
+    lines.push("No sessions in this window.");
+  } else {
+    lines.push("Most expensive sessions");
+    lines.push("-".repeat(52));
+    w.topSessions.forEach((s, i) => {
+      lines.push(
+        `  ${i + 1}. ${s.sessionId ?? "?"}${s.project ? ` (${s.project})` : ""} — ` +
+          `${s.costUsd === null ? "cost unknown" : `$${s.costUsd.toFixed(4)}`}, ` +
+          `${s.tokens.toLocaleString()} tokens, ${s.entryCount} messages`,
+      );
+      lines.push(`     driver: ${s.topDriver}`);
+    });
+  }
+  lines.push("");
+  lines.push("Estimate at published list prices, not your invoice.");
+  lines.push(`Price table version: ${w.priceTableVersion}`);
+  return lines.join("\n");
+}
+
+export function renderWeeklyMarkdown(w: WeeklyReport): string {
+  const md: string[] = [];
+  md.push(`# Weekly cost report (${w.startDate} to ${w.endDate})`);
+  md.push("");
+  md.push(`- Sessions: ${w.sessionCount}`);
+  md.push(`- Total tokens: ${w.totalTokens.toLocaleString()}`);
+  md.push(`- Total cost (estimate): ${w.totalCostUsd === null ? "unknown" : `$${w.totalCostUsd.toFixed(4)}`}`);
+  if (w.unknownCostSessions > 0) md.push(`- Sessions with unknown price: ${w.unknownCostSessions} (not included in the total)`);
+  md.push(`- Cache rewrites: ${usd(w.totalCacheRewriteCostUsd)}`);
+  md.push(`- Subagents: ${usd(w.totalSubagentCostUsd)}`);
+  md.push(`- Model switches: ${w.modelSwitchCount}`);
+  md.push("");
+  md.push("## Most expensive sessions");
+  md.push("");
+  w.topSessions.forEach((s, i) => {
+    md.push(
+      `${i + 1}. **${s.sessionId ?? "?"}**${s.project ? ` (${s.project})` : ""} — ` +
+        `${s.costUsd === null ? "cost unknown" : `$${s.costUsd.toFixed(4)}`}, ${s.tokens.toLocaleString()} tokens — driver: ${s.topDriver}`,
+    );
+  });
+  md.push("");
+  md.push(`> Estimate at published list prices, not your invoice. Price table version: ${w.priceTableVersion}.`);
+  return md.join("\n");
+}
+
+export function writeWeeklyFiles(w: WeeklyReport, outDir: string): { mdPath: string; jsonPath: string } {
+  const mdPath = `${outDir}/weekly.md`;
+  const jsonPath = `${outDir}/weekly.json`;
+  writeFileSync(mdPath, renderWeeklyMarkdown(w) + "\n", "utf8");
+  writeFileSync(jsonPath, JSON.stringify(w, null, 2) + "\n", "utf8");
+  return { mdPath, jsonPath };
 }
 
 export function writeReceiptFiles(r: Receipt, outDir: string): { mdPath: string; jsonPath: string } {

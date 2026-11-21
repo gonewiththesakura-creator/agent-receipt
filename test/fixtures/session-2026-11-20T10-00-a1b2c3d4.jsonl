@@ -1,0 +1,5 @@
+{"type":"gemini","timestamp":"2026-11-20T10:00:00Z","model":"gemini-2.5-pro","content":"Fix the failing tests.","tokens":{"input":50000,"cached":40000,"output":2000}}
+{"type":"user","timestamp":"2026-11-20T10:01:00Z","content":"Also check the linter."}
+{"type":"gemini","timestamp":"2026-11-20T10:05:00Z","model":"gemini-2.5-pro","content":"Done. Two tests were asserting stale behaviour.","tokens":{"input":30000,"cached":20000,"output":1000}}
+not json either
+{"type":"gemini","timestamp":"2026-11-20T10:10:00Z","model":"gemini-3.8-flash","content":"Quick summary of the change.","tokens":{"input":8000,"cached":0,"output":500}}

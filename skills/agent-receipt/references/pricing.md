@@ -6,9 +6,16 @@
 ## 口径
 
 - 金额来自 `src/pricing/prices.ts` 的版本化标价表（当前版本见收据
-  上的 `priceTableVersion`，2026-11-19 对厂商定价页核实过），按“公开标价”
-  折算，不是发票。覆盖 Claude 5 系列、Fable、Mythos 与 GPT-6 变体；
+  上的 `priceTableVersion`，2026-11-20 对 Anthropic、OpenAI 与 Google
+  定价页核实过），按“公开标价”折算，不是发票。覆盖 Claude 5 系列、
+  Fable、Mythos、GPT-6 变体与 Gemini（3.8/3.6 Flash、3.5 Flash-Lite、
+  2.5 Pro/Flash/Flash-Lite）；
   那次核实修掉了 Opus 4.5–4.8 被高估 3 倍的错误。
+- Gemini 的两个保留口径（标价表头文件里有同样说明）：
+  2.5 Pro 按 ≤20 万 token 提示词那档标价，超长提示词实际更贵，
+  收据可能低估；3.6/3.8 Flash 的价格 2027-01-01 起翻倍，
+  表里是 2026-12-31 之前的价格。遇到用户问 Gemini 金额准不准，
+  把这两句原样告诉他，不要自己换算。
 - 报金额时必须同时说：**按公开标价估算，不是你的发票**。厂商
   控制台才是权威账单。
 - 标价会变：厂商改价、改模型 id、改缓存 TTL，收据都可能变。

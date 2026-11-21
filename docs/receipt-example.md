@@ -30,4 +30,4 @@
 1. $0.1875 (26% of this receipt) went to cache rewrites — 1 rewrite(s) of 50,000 tokens. Resuming a large session after the cache TTL expires re-writes the whole context. Compact the session before pausing, or resume sooner.
 2. Model switch claude-sonnet-4-5 → claude-opus-4-1: the segment after the switch cost $0.2475 (35%). Confirm before switching to a more expensive model.
 
-> Estimate at published list prices, not your invoice. Price table version: 2026-11-19 (the two models in this example are priced the same under the new table, so the figures are unchanged).
+> Estimate at published list prices, not your invoice. Price table version: 2026-11-20 (the two models in this example are priced the same under the new table, so the figures are unchanged).

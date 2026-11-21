@@ -37,6 +37,12 @@ function extractUsage(raw: any): Usage | null {
     );
     const cacheWrite = num(u.cache_creation_input_tokens ?? u.cache_write_input_tokens ?? 0);
     if (input + output + cacheRead + cacheWrite === 0) continue;
+    // A record with only cache tokens and no fresh input or output is
+    // not a billable event — and it is also what a Gemini CLI message
+    // looks like to this parser (its `tokens.cached` matches the
+    // `cached` candidate below). Requiring input or output keeps the
+    // Codex parser from claiming Gemini lines when it runs first.
+    if (input + output === 0) continue;
     return { input, output, cacheWrite, cacheRead };
   }
   return null;

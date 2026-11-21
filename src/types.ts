@@ -29,8 +29,8 @@ export function totalTokens(u: Usage): number {
 
 /** One parsed message / API call from a session log. */
 export interface LogEntry {
-  /** Agent that produced the log: "claude" or "codex". */
-  agent: "claude" | "codex";
+  /** Agent that produced the log: "claude", "codex", or "gemini". */
+  agent: "claude" | "codex" | "gemini";
   /** Session id (file name or explicit id), if known. */
   sessionId: string | undefined;
   /** Project name, if the log path carries one. */

@@ -10,7 +10,7 @@ export interface CapOptions {
   quotaTokens?: number;
   quotaPct?: number;
   logDir?: string;
-  agent?: "claude" | "codex" | "all";
+  agent?: "claude" | "codex" | "gemini" | "all";
   outDir?: string;
   pollMs?: number;
 }

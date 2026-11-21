@@ -15,6 +15,7 @@ const fixtures = join(here, "fixtures");
 
 const { parseClaudeFile } = await import("../dist/parsers/claude.js");
 const { parseCodexFile } = await import("../dist/parsers/codex.js");
+const { parseGeminiFile } = await import("../dist/parsers/gemini.js");
 const { buildReceipt } = await import("../dist/receipt/receipt.js");
 const { forecastResume } = await import("../dist/receipt/forecast.js");
 const { findModelSwitches } = await import("../dist/receipt/check.js");
@@ -74,6 +75,74 @@ test("codex parser handles its shapes and unknown prices honestly", () => {
     receipt.usage.input + receipt.usage.output + receipt.usage.cacheRead + receipt.usage.cacheWrite,
     50950,
   );
+});
+
+// --- 2b. Gemini parser: session files, cached tokens split out, priced ---
+// Fixture math (per 1M tokens: 2.5 Pro $1.25 in / $0.125 cached / $10 out;
+// 3.8 Flash $0.75 in / $0.075 cached / $3.75 out; input already includes cached).
+// msg1: fresh (50000-40000)*1.25 + 40000*0.125 + 2000*10 = 37500 / 1e6 = 0.0375
+// msg2: fresh (30000-20000)*1.25 + 20000*0.125 + 1000*10 = 25000 / 1e6 = 0.025
+// msg3: 8000*0.75 + 500*3.75 = 7875 / 1e6 = 0.007875. Total 0.070375.
+test("gemini parser: jsonl session splits cached input and prices it", () => {
+  const r = parseGeminiFile(join(fixtures, "session-2026-11-20T10-00-a1b2c3d4.jsonl"));
+  assert.equal(r.entries.length, 3);
+  assert.equal(r.skippedLines, 1); // the non-JSON line; the user message is not "skipped"
+  assert.ok(r.entries.every((e) => e.agent === "gemini"));
+  assert.equal(r.entries[0].sessionId, "session-2026-11-20T10-00-a1b2c3d4");
+  assert.equal(r.entries[0].model, "gemini-2.5-pro");
+  assert.equal(r.entries[2].model, "gemini-3.8-flash");
+  const receipt = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  assert.equal(receipt.usage.input, 28000);
+  assert.equal(receipt.usage.cacheRead, 60000);
+  assert.equal(receipt.usage.cacheWrite, 0); // Gemini has no per-token cache-write charge
+  assert.equal(receipt.usage.output, 3500);
+  approx(receipt.costUsd, 0.070375);
+});
+
+// Older single-JSON session object: { sessionId, messages: [...] }.
+// msg: fresh (20000-5000)*0.30 + 5000*0.03 + 800*2.50 = 6650 / 1e6 = 0.00665.
+test("gemini parser: older .json session object with a messages array", () => {
+  const r = parseGeminiFile(join(fixtures, "session-2026-11-19T09-00-e5f6a7b8.json"));
+  assert.equal(r.entries.length, 1);
+  assert.equal(r.skippedLines, 0);
+  assert.equal(r.entries[0].agent, "gemini");
+  assert.equal(r.entries[0].sessionId, "gem-9");
+  assert.equal(r.entries[0].model, "gemini-2.5-flash");
+  assert.deepEqual(r.entries[0].usage, { input: 15000, output: 800, cacheWrite: 0, cacheRead: 5000 });
+  const receipt = buildReceipt(r.entries, { skippedLines: r.skippedLines });
+  approx(receipt.costUsd, 0.00665);
+});
+
+test("gemini parser: thought tokens bill as output", () => {
+  const dir = mkdtempSync(join(tmpdir(), "agent-receipt-gemini-"));
+  const file = join(dir, "session-2026-11-20T11-00-abcdef12.jsonl");
+  writeFileSync(
+    file,
+    JSON.stringify({
+      type: "gemini",
+      timestamp: "2026-11-20T11:00:00Z",
+      model: "gemini-2.5-pro",
+      tokens: { input: 10000, cached: 0, output: 1000, thoughts: 500 },
+    }) + "\n",
+    "utf8",
+  );
+  const r = parseGeminiFile(file);
+  assert.equal(r.entries.length, 1);
+  assert.equal(r.entries[0].usage.output, 1500);
+  assert.equal(r.entries[0].usage.input, 10000);
+});
+
+test("CLI daily reads a Gemini session from --log-dir", async () => {
+  const { stdout } = await execFileAsync(process.execPath, [
+    cli,
+    "daily",
+    "--date",
+    "2026-11-20",
+    "--log-dir",
+    fixtures,
+  ]);
+  assert.match(stdout, /Agent:\s+gemini/);
+  assert.match(stdout, /\$0\.0704/);
 });
 
 // --- 3. Resume forecast ---
@@ -453,11 +522,12 @@ test("CLI weekly rejects --days outside 1..90", async () => {
   );
 });
 
-// --- 11. 标价表：2026-11-19 对厂商定价页核实后的价格 ---
-// 来源：platform.claude.com/docs/en/about-claude/pricing 与
-// platform.openai.com/docs/pricing（2026-11-19 查阅）。数字按每 1M token。
-test("price table version is the verified 2026-11-19 table", () => {
-  assert.equal(PRICE_TABLE_VERSION, "2026-11-19");
+// --- 11. 标价表：2026-11-20 对厂商定价页核实后的价格 ---
+// 来源：platform.claude.com/docs/en/about-claude/pricing、
+// platform.openai.com/docs/pricing 与 ai.google.dev/gemini-api/docs/pricing
+// （2026-11-20 查阅）。数字按每 1M token。
+test("price table version is the verified 2026-11-20 table", () => {
+  assert.equal(PRICE_TABLE_VERSION, "2026-11-20");
 });
 
 test("price table: Opus 4.5-4.8 are $5/$25, not the old Opus 4.1 $15/$75", () => {
@@ -508,4 +578,21 @@ test("price table: an Opus 4.5 session costs a third of the old (wrong) figure",
   const usage = { input: 1_000_000, cacheWrite: 0, cacheRead: 0, output: 1_000_000 };
   approx(costOf("claude-opus-4-5", usage), 30); // $5 in + $25 out
   approx(costOf("claude-opus-4-1", usage), 90); // $15 in + $75 out
+});
+
+test("price table: Gemini rows priced from Google's page, flash-lite is not flash", () => {
+  // Standard paid tier, per 1M tokens, verified 2026-11-20 on
+  // ai.google.dev/gemini-api/docs/pricing. Cache write is 0: Gemini
+  // has no per-token cache-write charge.
+  assert.deepEqual(priceFor("gemini-3.8-flash"), { input: 0.75, cacheWrite: 0, cacheRead: 0.075, output: 3.75 });
+  assert.deepEqual(priceFor("gemini-3.6-flash"), { input: 0.75, cacheWrite: 0, cacheRead: 0.075, output: 3.75 });
+  assert.deepEqual(priceFor("gemini-3.5-flash-lite"), { input: 0.3, cacheWrite: 0, cacheRead: 0.03, output: 2.5 });
+  assert.deepEqual(priceFor("gemini-2.5-pro"), { input: 1.25, cacheWrite: 0, cacheRead: 0.125, output: 10 });
+  assert.deepEqual(priceFor("gemini-2.5-flash"), { input: 0.3, cacheWrite: 0, cacheRead: 0.03, output: 2.5 });
+  // Order matters: flash-lite must not fall through to the flash row.
+  assert.deepEqual(priceFor("gemini-2.5-flash-lite"), { input: 0.1, cacheWrite: 0, cacheRead: 0.01, output: 0.4 });
+  // No generic "gemini" fallback: unlisted Gemini models stay tokens-only.
+  assert.equal(priceFor("gemini-9-unknown"), null);
+  assert.equal(priceFor("gemini-3.1-pro-preview"), null);
+  approx(costOf("gemini-2.5-pro", { input: 1_000_000, cacheWrite: 0, cacheRead: 0, output: 1_000_000 }), 11.25);
 });

@@ -21,7 +21,7 @@ by context cache rewrites, silent model switches, and subscription quota
 burned by session resumes — and budget alerts are not hard caps.
 
 `agent-receipt` parses the session logs already on your machine
-(Claude Code and Codex CLI), and gives you three things:
+(Claude Code, Codex CLI, and Gemini CLI), and gives you three things:
 
 1. **A receipt** — per-session cost, split into fresh input / cache
    read / cache write / output, with cache rewrites and subagent work
@@ -39,7 +39,7 @@ git clone https://github.com/gonewiththesakura-creator/agent-receipt.git
 cd agent-receipt && npm install && npm run build
 node dist/cli.js daily
 
-# Receipt for today (reads ~/.claude/projects and ~/.codex/sessions)
+# Receipt for today (reads ~/.claude/projects, ~/.codex/sessions, and ~/.gemini/tmp)
 node dist/cli.js daily
 # Weekly report: the 3 most expensive sessions of the last 7 days, each with its main cost driver
 node dist/cli.js weekly [--date YYYY-MM-DD] [--days N] [--out ./reports]
@@ -179,15 +179,26 @@ node dist/cli.js statusline
   cache_creation_input_tokens, cache_read_input_tokens}`). Codex CLI:
   `~/.codex/sessions/**/*.jsonl`, parsed best-effort — Codex log
   formats vary, so unknown fields are skipped and unknown lines are
-  counted, never fatal.
+  counted, never fatal. Gemini CLI: `~/.gemini/tmp/<project>/chats/
+  session-*.json` (older, one object with a `messages` array) or
+  `session-*.jsonl` (current, one message per line), with
+  `tokens: {input, cached, output}` on assistant messages. The input
+  figure already includes cached tokens, so the fresh input is
+  input − cached (ccusage's rule — otherwise the same tokens would be
+  counted twice); thinking tokens bill at the output rate and are
+  added to output.
 - **Pricing.** `src/pricing/prices.ts` is a versioned table
-  (current version `2026-11-19`, verified that day against the
-  Anthropic and OpenAI pricing pages) of published list prices. It
-  covers the Claude 5 family, Fable, Mythos and GPT-6 variants; the
+  (current version `2026-11-20`, verified that day against the
+  Anthropic, OpenAI, and Google pricing pages) of published list prices. It
+  covers the Claude 5 family, Fable, Mythos, GPT-6 variants, and Gemini
+  (3.8/3.6 Flash, 3.5 Flash-Lite, 2.5 Pro/Flash/Flash-Lite); the
   2026-11-19 check fixed Opus 4.5–4.8, which the old table had priced
   3x too high. Claude Haiku 5.5 is intentionally unpriced — its price
   depends on prompt length, which a receipt cannot attribute, so it
-  reports tokens only. Dollar figures are **estimates at published
+  reports tokens only. Two Gemini caveats, both in the table header:
+  Gemini 2.5 Pro is priced at its ≤200k-token rate (above 200k it
+  costs more), and Gemini 3.6/3.8 Flash rates double on 2027-01-01.
+  Dollar figures are **estimates at published
   list prices, not your invoice**.
   A model with no price in the table reports token counts only and says
   so on the receipt — it never guesses a price.
@@ -287,7 +298,8 @@ Node >= 20. No runtime dependencies; TypeScript is a dev dependency only.
   model-switch report + logging hook, resume forecast.
 - **v0.2** (in development): Claude Code skill + plugin marketplace (plus
   Codex / Cursor plugin manifests), deterministic /
-  explanation layer split, Cursor / Gemini CLI parsers, idle
+  explanation layer split, Gemini CLI parser (done 2026-11-20),
+  Cursor parser (still to do), idle
   auto-compact suggestions, Claude Code 状态栏 statusline.
   Weekly report (`weekly`: the three most expensive sessions of the
   window, each with its main cost driver) is done.

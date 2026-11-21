@@ -1,13 +1,13 @@
 ---
 name: agent-receipt
-description: "当用户问 AI 编程会话花了多少钱、为什么这么贵、怎么控成本时使用：为 Claude Code 或 Codex 会话生成成本收据、解释贵的原因、预测 resume 成本、报告模型切换、或给会话加硬性上限。触发场景包括“这次会话花了多少钱”“为什么这么贵”“缓存重写花了多少”“resume 一下要多少钱”“帮我把这次会话成本控在 5 美元内”“有没有偷偷换模型”。不要在用户只问通用计费规则、只想看厂商账单、或讨论与成本无关的编码问题时触发；也不要在没有本地会话日志时编造收据。"
+description: "当用户问 AI 编程会话花了多少钱、为什么这么贵、怎么控成本时使用：为 Claude Code、Codex 或 Gemini CLI 会话生成成本收据、解释贵的原因、预测 resume 成本、报告模型切换、或给会话加硬性上限。触发场景包括“这次会话花了多少钱”“为什么这么贵”“缓存重写花了多少”“resume 一下要多少钱”“帮我把这次会话成本控在 5 美元内”“有没有偷偷换模型”。不要在用户只问通用计费规则、只想看厂商账单、或讨论与成本无关的编码问题时触发；也不要在没有本地会话日志时编造收据。"
 license: MIT
-compatibility: 需要 Node.js >= 20 与本地 Claude Code（~/.claude/projects）或 Codex（~/.codex/sessions）会话日志；只读解析，不联网、不上传。
+compatibility: 需要 Node.js >= 20 与本地 Claude Code（~/.claude/projects）、Codex（~/.codex/sessions）或 Gemini CLI（~/.gemini/tmp）会话日志；只读解析，不联网、不上传。
 ---
 
 # agent-receipt —— AI 编程会话的成本收据
 
-给 Claude Code / Codex 会话算一笔明白账：这笔钱花在哪、为什么贵、下一步怎么省。
+给 Claude Code / Codex / Gemini CLI 会话算一笔明白账：这笔钱花在哪、为什么贵、下一步怎么省。
 所有金额与 token 数都由本地 CLI 确定性算出，skill 本身绝不自己算钱。
 
 ## 红线（必须遵守）
@@ -26,6 +26,7 @@ compatibility: 需要 Node.js >= 20 与本地 Claude Code（~/.claude/projects�
 | 用户想做的事 | 怎么做（脚本路径以本 skill 目录为准） |
 |---|---|
 | 看今天 / 本周 / 本月 / 某会话的收据 | `node scripts/receipt.mjs daily`、`weekly`、`monthly`、`session <id>` 或 `receipt --file <会话 .jsonl>`，见 `scripts/receipt.mjs` |
+| 只看某一个 agent 的收据 | 同上加 `--agent gemini`（`claude|codex|gemini|all`，默认 all；Gemini 日志在 `~/.gemini/tmp/<项目>/chats/session-*.jsonl`） |
 | 问“这周最贵的是什么” | `node scripts/receipt.mjs weekly [--date YYYY-MM-DD] [--days N]`：窗口内最贵的 3 个会话，各带主因 |
 | 问“为什么这么贵” | 先出收据（同上），再 `node scripts/explain.mjs --receipt <receipt.json>`，只解释收据里的数字 |
 | 问“resume 一下要多少钱” | `node scripts/receipt.mjs resume --forecast --file <会话 .jsonl>` |

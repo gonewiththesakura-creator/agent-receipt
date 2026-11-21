@@ -11,7 +11,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseClaudeFile } from "./parsers/claude.js";
 import { parseCodexFile } from "./parsers/codex.js";
-import { discoverLogs, groupBySession } from "./parsers/index.js";
+import { parseGeminiFile } from "./parsers/gemini.js";
+import { discoverLogs, groupBySession, parsersForFile, parseWithOrder } from "./parsers/index.js";
 import { readFileSync } from "node:fs";
 import { buildReceipt } from "./receipt/receipt.js";
 import { explainReceipt, verifyExplanation } from "./explain/index.js";
@@ -29,12 +30,12 @@ function usage(): string {
   return `agent-receipt ${VERSION} — a cost receipt for AI coding agents (local-first)
 
 Usage:
-  agent-receipt daily [--date YYYY-MM-DD] [--agent claude|codex|all] [--log-dir DIR]
-  agent-receipt monthly [--month YYYY-MM] [--agent claude|codex|all] [--log-dir DIR]
-  agent-receipt weekly [--date YYYY-MM-DD] [--days N] [--agent claude|codex|all] [--log-dir DIR] [--out DIR]
+  agent-receipt daily [--date YYYY-MM-DD] [--agent claude|codex|gemini|all] [--log-dir DIR]
+  agent-receipt monthly [--month YYYY-MM] [--agent claude|codex|gemini|all] [--log-dir DIR]
+  agent-receipt weekly [--date YYYY-MM-DD] [--days N] [--agent claude|codex|gemini|all] [--log-dir DIR] [--out DIR]
   agent-receipt session <id> [--log-dir DIR]
   agent-receipt receipt [--file PATH] [--log-dir DIR] [--out DIR]
-  agent-receipt statusline [--file PATH] [--log-dir DIR] [--agent claude|codex|all] [--no-cost]
+  agent-receipt statusline [--file PATH] [--log-dir DIR] [--agent claude|codex|gemini|all] [--no-cost]
   agent-receipt explain --file receipt.json   explain a receipt (rule-based; numbers only from the receipt)
   agent-receipt check [--file PATH] [--log-dir DIR]        model-switch report
   agent-receipt resume --forecast --file PATH [--ttl-minutes N]
@@ -52,7 +53,7 @@ interface Flags {
   date?: string;
   month?: string;
   days?: number;
-  agent?: "claude" | "codex" | "all";
+  agent?: "claude" | "codex" | "gemini" | "all";
   logDir?: string;
   file?: string;
   out?: string;
@@ -89,18 +90,22 @@ function parseFlags(args: string[]): { flags: Flags; rest: string[] } {
   return { flags, rest };
 }
 
-function loadEntries(flags: Flags, agentHint?: "claude" | "codex"): ParseResult {
+function loadEntries(flags: Flags, agentHint?: "claude" | "codex" | "gemini"): ParseResult {
   if (flags.file) {
-    const isCodex = agentHint === "codex" || flags.file.includes("codex");
-    const r = isCodex
-      ? parseCodexFile(flags.file)
-      : parseClaudeFile(flags.file);
-    // If the first parser found nothing, try the other — Codex and Claude logs are both JSONL.
-    if (r.entries.length === 0 && r.skippedLines > 0) {
-      const alt = isCodex ? parseClaudeFile(flags.file) : parseCodexFile(flags.file);
-      if (alt.entries.length > 0) return alt;
-    }
-    return r;
+    // First guess: explicit hint, else a "codex" filename means Codex
+    // (a Claude-shaped parser would otherwise misread Codex lines,
+    // which also carry a top-level `usage` object).
+    const first =
+      agentHint === "codex" || (agentHint === undefined && flags.file.includes("codex"))
+        ? parseCodexFile(flags.file)
+        : agentHint === "gemini"
+          ? parseGeminiFile(flags.file)
+          : parseClaudeFile(flags.file);
+    if (first.entries.length > 0) return first;
+    // First guess found nothing: try the other parsers in filename
+    // order, so a Gemini session passed as --file is not misread as
+    // Codex (its `tokens.cached` looks like a Codex cache field).
+    return parseWithOrder(flags.file, undefined, parsersForFile(flags.file));
   }
   return discoverLogs({ logDir: flags.logDir, agent: flags.agent });
 }
